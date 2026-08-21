@@ -1,0 +1,250 @@
+import React, { useEffect, useState } from 'react'
+import DashboardLayout from '../../components/layouts/DashboardLayout'
+import { useUserAuth } from '../../hooks/useUserAuth'
+import { API_PATH } from '../../utils/apiPath'
+import toast from 'react-hot-toast'
+import axiosInstance from '../../utils/axiosInstance'
+import ExpenseOverview from '../../components/Expense/ExpenseOverview'
+import ExpenseFilter from '../../components/Expense/ExpenseFilter'
+import Modal from '../../components/Modal'
+import AddIncomeForm from '../../components/Income/AddIncomeForm'
+import AddExpenseForm from '../../components/Expense/AddExpenseForm'
+import ExpenseList from '../../components/Expense/ExpenseList'
+import DeleteAlert from '../../components/DeleteAlert'
+
+const Expense = () => {
+  useUserAuth()
+
+  const [expenseData, setExpenseData] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [openDeleteAlert, setOpenDeleteAlert] = useState({ show: false, data: null })
+  const [openAddExpenseModal, setOpenAddExpenseModal] = useState(false)
+  const [fromDate, setFromDate] = useState("")
+  const [toDate, setToDate] = useState("")
+
+  // Get All Expense Details
+  const fetchExpenseDetails = async () => {
+    if (loading) return;
+
+    setLoading(true)
+
+    try {
+      const response = await axiosInstance.get(`${API_PATH.EXPENSE.GET_ALL_EXPENSE}`)
+
+      if (response.data) {
+        setExpenseData(response.data);
+      }
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Handle Add Expense
+  const handleAddExpense = async (expense) => {
+    const { category, amount, date, icon } = expense
+
+    // Validation
+    if (!category.trim()) {
+      toast.error("Category is required.")
+      return
+    }
+    if (!amount || isNaN(amount) || Number(amount) <= 0) {
+      toast.error("Amount should be a valid number greater than 0.");
+      return;
+    }
+    if (!date) {
+      toast.error("Date is required.")
+    }
+
+    try {
+      await axiosInstance.post(API_PATH.EXPENSE.ADD_EXPENSE, {
+        category,
+        amount,
+        date,
+        icon
+      })
+
+      setOpenAddExpenseModal(false)
+      toast.success("Expense added successfully")
+      fetchExpenseDetails();
+    } catch (error) {
+      console.error("Error adding Expense", error.response?.data?.message || error.message)
+    }
+  }
+
+  // Delete Expense
+  const deleteExpense = async (id) => {
+    try {
+      await axiosInstance.delete(API_PATH.EXPENSE.DELETE_EXPENSE(id))
+
+      setOpenDeleteAlert({ show: false, data: null })
+      toast.success("expense details deleted successfully")
+      fetchExpenseDetails();
+    } catch (error) {
+      console.error("Error deleting expense", error.response?.data?.message || error.message)
+    }
+  }
+
+  const generateExpenseCsv = (expenses) => {
+    const headers = ["Category", "Amount", "Date"]
+    const rows = expenses.map((item) => [
+      item.category || "",
+      item.amount ?? "",
+      item.date ? new Date(item.date).toISOString().split('T')[0] : ""
+    ])
+
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((field) => `"${String(field).replace(/"/g, '""')}"`).join(','))
+      .join('\r\n')
+
+    return csvContent
+  }
+
+  // Handle Download Expense Details
+  const handleDownloadExpenseDetails = () => {
+    try {
+      if (filteredExpenses.length === 0) {
+        toast.error("No expenses available to download")
+        return
+      }
+
+      const csvData = generateExpenseCsv(filteredExpenses)
+      const blob = new Blob([csvData], { type: "text/csv;charset=utf-8;" })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.setAttribute("download", "expense_details.csv")
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error("Error downloading expense details", error.message)
+      toast.error("failed to download expense details")
+    }
+  }
+
+  // Filter expenses by date range
+  const getFilteredExpenses = () => {
+    if (!fromDate && !toDate) return expenseData;
+
+    return expenseData.filter((expense) => {
+      const expenseDate = new Date(expense.date);
+      
+      if (fromDate && toDate) {
+        const from = new Date(fromDate);
+        from.setHours(0, 0, 0, 0);
+        const to = new Date(toDate);
+        to.setHours(23, 59, 59, 999);
+        return expenseDate >= from && expenseDate <= to;
+      } else if (fromDate) {
+        const from = new Date(fromDate);
+        from.setHours(0, 0, 0, 0);
+        return expenseDate >= from;
+      } else if (toDate) {
+        const to = new Date(toDate);
+        to.setHours(23, 59, 59, 999);
+        return expenseDate <= to;
+      }
+      
+      return true;
+    });
+  }
+
+  const filteredExpenses = getFilteredExpenses();
+
+  useEffect(() => {
+    fetchExpenseDetails()
+
+    return () => { }
+
+  }, [])
+
+
+  return (
+    <DashboardLayout activeMenu="Expense">
+      <div className="my-5 mx-auto">
+        <div className="grid grid-cols-1 gap-6">
+          <div className="flex flex-col gap-6">
+            {/* Date Range Filter */}
+            <div className="card">
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex-1">
+                  <label className='text-[13px] text-slate-800 dark:text-white'>From Date</label>
+                  <div className='input-box'>
+                    <input
+                      type="date"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                      className='w-full bg-transparent outline-none'
+                    />
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <label className='text-[13px] text-slate-800 dark:text-white'>To Date</label>
+                  <div className='input-box'>
+                    <input
+                      type="date"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                      className='w-full bg-transparent outline-none'
+                    />
+                  </div>
+                </div>
+                <div className="flex items-end">
+                  <button
+                    className='add-btn add-btn-fill'
+                    onClick={() => {
+                      setFromDate("")
+                      setToDate("")
+                    }}
+                  >
+                    Clear Filter
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <ExpenseOverview
+              transactions={filteredExpenses}
+              onExpenseIncome={() => setOpenAddExpenseModal(true)}
+            />
+
+            <ExpenseFilter transactions={filteredExpenses} />
+
+            <ExpenseList
+              transactions={filteredExpenses}
+              onDelete={(id) => {
+                setOpenDeleteAlert({ show: true, data: id })
+              }}
+              onDownload={handleDownloadExpenseDetails}
+            />
+          </div>
+        </div>
+
+        <Modal
+          isOpen={openAddExpenseModal}
+          onClose={() => setOpenAddExpenseModal(false)}
+          title="Add Expense"
+        >
+          <AddExpenseForm onAddExpense={handleAddExpense} />
+        </Modal>
+
+        <Modal
+          isOpen={openDeleteAlert.show}
+          onClose={() => setOpenDeleteAlert({ show: false, data: null })}
+          title="Delete Expense"
+        >
+          <DeleteAlert
+            content="Are you sure you want to delete this Expense detail?"
+            onDelete={() => deleteExpense(openDeleteAlert.data)}
+          />
+        </Modal>
+      </div>
+    </DashboardLayout>
+  )
+}
+
+export default Expense
